@@ -209,6 +209,26 @@ p {
   transition: transform 0.3s ease;
 }
 
+.pdf-invert canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.pdf-page-shadow mark {
+  background-color: #facc15 !important;
+  color: black !important;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* Ensure Annotation Layer is interactive */
+.react-pdf__Page__annotations {
+  z-index: 5;
+}
+
+.react-pdf__Page__textContent {
+  z-index: 4;
+}
+
 .pdf-page-shadow:hover canvas {
   transform: translateY(-5px);
 }

@@ -30,7 +30,12 @@ import {
   Search,
   Minimize2,
   Globe,
-  PenTool
+  PenTool,
+  Moon,
+  Sun,
+  StickyNote,
+  Play,
+  Highlighter
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PDFDocument } from 'pdf-lib';
@@ -68,6 +73,11 @@ const App = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [pdfDarkMode, setPdfDarkMode] = useState(false);
+  const [notes, setNotes] = useState([]); // { page, x, y, text, id }
+  const [showNotes, setShowNotes] = useState(true);
+  const [noteMode, setNoteMode] = useState(false);
+  const [presentationMode, setPresentationMode] = useState(false);
   const viewerContainerRef = useRef(null);
   const viewerOverlayRef = useRef(null);
 
@@ -86,7 +96,19 @@ const App = () => {
     window.addEventListener('resize', updateWidth);
     if (viewingPdf) setTimeout(updateWidth, 100);
     return () => window.removeEventListener('resize', updateWidth);
-  }, [viewingPdf]);
+  }, [viewingPdf, presentationMode]);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!viewingPdf) return;
+      if (e.key === 'ArrowRight' || e.key === 'n') setPageNumber(p => Math.min(numPages, p + 1));
+      if (e.key === 'ArrowLeft' || e.key === 'p') setPageNumber(p => Math.max(1, p - 1));
+      if (e.key === 'Escape' && presentationMode) setPresentationMode(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewingPdf, numPages, presentationMode]);
 
   const tools = [
     { id: 'word', name: 'Word to PDF', icon: <FileText />, color: '#2b579a' },
@@ -319,6 +341,46 @@ const App = () => {
     printWindow.onload = () => {
       printWindow.print();
     };
+  };
+
+  const addNote = (e) => {
+    if (!noteMode) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+    const newNote = {
+      id: Date.now(),
+      page: pageNumber,
+      x,
+      y,
+      text: 'New note...',
+      isOpen: true
+    };
+    setNotes([...notes, newNote]);
+    setNoteMode(false);
+  };
+
+  const updateNote = (id, text) => {
+    setNotes(notes.map(n => n.id === id ? { ...n, text } : n));
+  };
+
+  const deleteNote = (id) => {
+    setNotes(notes.filter(n => n.id !== id));
+  };
+
+  const toggleNoteOpen = (id) => {
+    setNotes(notes.map(n => n.id === id ? { ...n, isOpen: !n.isOpen } : n));
+  };
+
+  const highlightPattern = (text, pattern) => {
+    if (!pattern) return text;
+    const parts = text.split(new RegExp(`(${pattern})`, 'gi'));
+    return parts.map((part, i) =>
+      part.toLowerCase() === pattern.toLowerCase()
+        ? <mark key={i} style={{ background: '#facc15', color: 'black', padding: '0 2px', borderRadius: '2px' }}>{part}</mark>
+        : part
+    );
   };
 
   const [isDrawing, setIsDrawing] = useState(false);
@@ -642,9 +704,13 @@ const App = () => {
                   <ChevronLeft size={20} />
                 </button>
                 <div style={{ display: 'flex', gap: '4px' }} className="hide-mobile">
-                  <button onClick={handlePrint} className="glass-card" style={{ padding: '8px' }}><Printer size={18} /></button>
-                  <button onClick={() => setShowSearch(!showSearch)} className="glass-card" style={{ padding: '8px', background: showSearch ? 'var(--accent-color)' : 'transparent' }}><Search size={18} /></button>
-                  <button onClick={() => setDrawMode(!drawMode)} className="glass-card" style={{ padding: '8px', background: drawMode ? 'var(--accent-color)' : 'transparent' }}><PenTool size={18} /></button>
+                  <button onClick={handlePrint} className="glass-card" style={{ padding: '8px' }} title="Print"><Printer size={18} /></button>
+                  <button onClick={() => setShowSearch(!showSearch)} className="glass-card" style={{ padding: '8px', background: showSearch ? 'var(--accent-color)' : 'transparent' }} title="Search"><Search size={18} /></button>
+                  <button onClick={() => setDrawMode(!drawMode)} className="glass-card" style={{ padding: '8px', background: drawMode ? 'var(--accent-color)' : 'transparent' }} title="Draw/Sign"><PenTool size={18} /></button>
+                  <button onClick={() => setNoteMode(!noteMode)} className="glass-card" style={{ padding: '8px', background: noteMode ? 'var(--accent-color)' : 'transparent' }} title="Add Note"><StickyNote size={18} /></button>
+                  <button onClick={() => setPdfDarkMode(!pdfDarkMode)} className="glass-card" style={{ padding: '8px', background: pdfDarkMode ? 'var(--accent-color)' : 'transparent' }} title="PDF Dark Mode">
+                    {pdfDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+                  </button>
                 </div>
               </div>
 
@@ -661,6 +727,7 @@ const App = () => {
                       placeholder="Search text..."
                       value={searchText}
                       onChange={(e) => setSearchText(e.target.value)}
+                      autoFocus
                       style={{
                         width: '100%',
                         background: 'rgba(255,255,255,0.05)',
@@ -681,6 +748,7 @@ const App = () => {
                     onClick={() => setViewMode('single')}
                     className="glass-card"
                     style={{ padding: '8px', background: viewMode === 'single' ? 'var(--accent-color)' : 'transparent' }}
+                    title="Single Page"
                   >
                     <Maximize2 size={18} />
                   </button>
@@ -688,6 +756,7 @@ const App = () => {
                     onClick={() => setViewMode('grid')}
                     className="glass-card"
                     style={{ padding: '8px', background: viewMode === 'grid' ? 'var(--accent-color)' : 'transparent' }}
+                    title="Grid View"
                   >
                     <LayoutGrid size={18} />
                   </button>
@@ -697,7 +766,10 @@ const App = () => {
                 <span style={{ fontSize: '0.8rem', minWidth: '40px', textAlign: 'center' }}>{Math.round(scale * 100)}%</span>
                 <button onClick={() => setScale(s => Math.min(3, s + 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomIn size={18} /></button>
                 <div style={{ width: '1px', height: '20px', background: 'var(--card-border)', margin: '0 4px' }} />
-                <button onClick={toggleFullscreen} className="glass-card" style={{ padding: '8px' }}>
+                <button onClick={() => setPresentationMode(!presentationMode)} className="glass-card" style={{ padding: '8px', background: presentationMode ? 'var(--accent-color)' : 'transparent' }} title="Presentation Mode">
+                  <Play size={18} />
+                </button>
+                <button onClick={toggleFullscreen} className="glass-card" style={{ padding: '8px' }} title="Fullscreen">
                   {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                 </button>
                 <a href={viewingPdf} download="document.pdf" className="btn-primary" style={{ width: 'auto', padding: '8px 16px' }}>
@@ -711,11 +783,12 @@ const App = () => {
               style={{
                 flex: 1,
                 overflow: 'auto',
-                padding: '20px',
-                background: '#0a0a0c',
+                padding: presentationMode ? '0' : '20px',
+                background: presentationMode ? 'black' : '#0a0a0c',
                 scrollBehavior: 'smooth',
                 display: 'flex',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                alignItems: presentationMode ? 'center' : 'flex-start'
               }}
             >
               <Document
@@ -724,15 +797,94 @@ const App = () => {
                 loading={<Loader2 className="animate-spin" size={40} color="var(--accent-color)" style={{ margin: '100px auto' }} />}
               >
                 {viewMode === 'single' ? (
-                  <div style={{ position: 'relative' }}>
+                  <div
+                    style={{ position: 'relative' }}
+                    onClick={addNote}
+                  >
                     <Page
                       pageNumber={pageNumber}
-                      scale={scale}
+                      scale={presentationMode ? (containerWidth / 600) : scale}
                       width={containerWidth > 0 ? containerWidth : undefined}
                       renderAnnotationLayer={true}
                       renderTextLayer={true}
-                      className="pdf-page-shadow"
+                      customTextRenderer={({ str }) => highlightPattern(str, searchText)}
+                      className={`pdf-page-shadow ${pdfDarkMode ? 'pdf-invert' : ''}`}
                     />
+
+                    {/* Notes Layer */}
+                    {notes.filter(n => n.page === pageNumber).map(note => (
+                      <div
+                        key={note.id}
+                        style={{
+                          position: 'absolute',
+                          left: `${note.x}%`,
+                          top: `${note.y}%`,
+                          zIndex: 100,
+                          transform: 'translate(-50%, -50%)'
+                        }}
+                      >
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleNoteOpen(note.id); }}
+                          style={{
+                            background: '#facc15',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '24px',
+                            height: '24px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <StickyNote size={14} color="black" />
+                        </button>
+
+                        <AnimatePresence>
+                          {note.isOpen && (
+                            <motion.div
+                              initial={{ scale: 0.8, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              exit={{ scale: 0.8, opacity: 0 }}
+                              style={{
+                                position: 'absolute',
+                                top: '30px',
+                                left: '0',
+                                width: '200px',
+                                background: '#fef9c3',
+                                padding: '12px',
+                                borderRadius: '8px',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                                color: 'black'
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#854d0e' }}>NOTE</span>
+                                <button onClick={() => deleteNote(note.id)} style={{ background: 'none', border: 'none', color: '#854d0e', cursor: 'pointer' }}>
+                                  <X size={14} />
+                                </button>
+                              </div>
+                              <textarea
+                                value={note.text}
+                                onChange={(e) => updateNote(note.id, e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  resize: 'none',
+                                  fontSize: '0.85rem',
+                                  outline: 'none',
+                                  minHeight: '60px'
+                                }}
+                              />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    ))}
+
                     {drawMode && (
                       <canvas
                         ref={canvasRef}

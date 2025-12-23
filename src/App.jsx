@@ -24,7 +24,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  LayoutGrid,
+  Maximize2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PDFDocument } from 'pdf-lib';
@@ -48,18 +50,33 @@ const App = () => {
   const [files, setFiles] = useState([]);
   const [resultUrl, setResultUrl] = useState(null);
   const [error, setError] = useState(null);
-  const [viewingPdf, setViewingPdf] = useState(null); // URL of PDF to view
+  const [viewingPdf, setViewingPdf] = useState(null);
   const fileInputRef = useRef(null);
 
   // PDF Viewer State
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
+  const [viewMode, setViewMode] = useState('single'); // 'single' or 'grid'
+  const [containerWidth, setContainerWidth] = useState(0);
+  const viewerContainerRef = useRef(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2500);
     return () => clearTimeout(timer);
   }, []);
+
+  // Handle responsive width for PDF
+  useEffect(() => {
+    const updateWidth = () => {
+      if (viewerContainerRef.current) {
+        setContainerWidth(viewerContainerRef.current.offsetWidth - 40);
+      }
+    };
+    window.addEventListener('resize', updateWidth);
+    if (viewingPdf) setTimeout(updateWidth, 100);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, [viewingPdf]);
 
   const tools = [
     { id: 'word', name: 'Word to PDF', icon: <FileText />, color: '#2b579a' },
@@ -85,7 +102,6 @@ const App = () => {
 
     setFiles(selectedFiles);
 
-    // If it's just viewing, don't "process" it, just open viewer
     if (selectedTool?.id === 'view') {
       const url = URL.createObjectURL(selectedFiles[0]);
       setViewingPdf(url);
@@ -463,78 +479,131 @@ const App = () => {
             }}
           >
             <header style={{
-              padding: '16px',
+              padding: '12px 16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              borderBottom: '1px solid var(--card-border)'
+              borderBottom: '1px solid var(--card-border)',
+              background: 'rgba(5, 5, 7, 0.8)',
+              backdropFilter: 'blur(10px)'
             }}>
               <button
                 onClick={() => setViewingPdf(null)}
                 className="btn-secondary"
                 style={{ width: 'auto', padding: '8px 12px' }}
               >
-                <ChevronLeft size={20} /> Back
+                <ChevronLeft size={20} />
               </button>
-              <div style={{ display: 'flex', gap: '8px' }}>
+
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  onClick={() => setViewMode('single')}
+                  className="glass-card"
+                  style={{ padding: '8px', background: viewMode === 'single' ? 'var(--accent-color)' : 'transparent' }}
+                >
+                  <Maximize2 size={18} />
+                </button>
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className="glass-card"
+                  style={{ padding: '8px', background: viewMode === 'grid' ? 'var(--accent-color)' : 'transparent' }}
+                >
+                  <LayoutGrid size={18} />
+                </button>
+                <div style={{ width: '1px', height: '20px', background: 'var(--card-border)', margin: '0 4px' }} />
                 <button onClick={() => setScale(s => Math.max(0.5, s - 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomOut size={18} /></button>
                 <button onClick={() => setScale(s => Math.min(2, s + 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomIn size={18} /></button>
               </div>
+
               <a href={viewingPdf} download="document.pdf" className="btn-primary" style={{ width: 'auto', padding: '8px 16px' }}>
                 <Download size={18} />
               </a>
             </header>
 
-            <div style={{
-              flex: 1,
-              overflow: 'auto',
-              display: 'flex',
-              justifyContent: 'center',
-              padding: '20px',
-              background: '#1a1a1a'
-            }}>
+            <div
+              ref={viewerContainerRef}
+              style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '20px',
+                background: '#0a0a0c',
+                scrollBehavior: 'smooth'
+              }}
+            >
               <Document
                 file={viewingPdf}
                 onLoadSuccess={onDocumentLoadSuccess}
-                loading={<Loader2 className="animate-spin" size={40} color="var(--accent-color)" />}
+                loading={<Loader2 className="animate-spin" size={40} color="var(--accent-color)" style={{ margin: '100px auto' }} />}
               >
-                <Page
-                  pageNumber={pageNumber}
-                  scale={scale}
-                  renderAnnotationLayer={false}
-                  renderTextLayer={false}
-                  className="glass-card"
-                  style={{ padding: 0, overflow: 'hidden' }}
-                />
+                {viewMode === 'single' ? (
+                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <Page
+                      pageNumber={pageNumber}
+                      scale={scale}
+                      width={containerWidth > 0 ? containerWidth : undefined}
+                      renderAnnotationLayer={false}
+                      renderTextLayer={false}
+                      className="pdf-page-shadow"
+                    />
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                    gap: '20px',
+                    padding: '10px'
+                  }}>
+                    {Array.from(new Array(numPages), (el, index) => (
+                      <div
+                        key={`page_${index + 1}`}
+                        onClick={() => { setPageNumber(index + 1); setViewMode('single'); }}
+                        style={{ cursor: 'pointer', textAlign: 'center' }}
+                      >
+                        <Page
+                          pageNumber={index + 1}
+                          scale={0.3}
+                          renderAnnotationLayer={false}
+                          renderTextLayer={false}
+                          className="pdf-page-shadow"
+                        />
+                        <p style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{index + 1}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Document>
             </div>
 
-            <footer style={{
-              padding: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '20px',
-              borderTop: '1px solid var(--card-border)'
-            }}>
-              <button
-                disabled={pageNumber <= 1}
-                onClick={() => setPageNumber(p => p - 1)}
-                className="glass-card"
-                style={{ padding: '8px', opacity: pageNumber <= 1 ? 0.5 : 1 }}
-              >
-                <ChevronLeft size={24} />
-              </button>
-              <span>Page {pageNumber} of {numPages}</span>
-              <button
-                disabled={pageNumber >= numPages}
-                onClick={() => setPageNumber(p => p + 1)}
-                className="glass-card"
-                style={{ padding: '8px', opacity: pageNumber >= numPages ? 0.5 : 1 }}
-              >
-                <ChevronRight size={24} />
-              </button>
-            </footer>
+            {viewMode === 'single' && (
+              <footer style={{
+                padding: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '20px',
+                borderTop: '1px solid var(--card-border)',
+                background: 'rgba(5, 5, 7, 0.8)',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <button
+                  disabled={pageNumber <= 1}
+                  onClick={() => setPageNumber(p => p - 1)}
+                  className="glass-card"
+                  style={{ padding: '8px', opacity: pageNumber <= 1 ? 0.5 : 1 }}
+                >
+                  <ChevronLeft size={24} />
+                </button>
+                <span style={{ fontWeight: '500' }}>{pageNumber} / {numPages}</span>
+                <button
+                  disabled={pageNumber >= numPages}
+                  onClick={() => setPageNumber(p => p + 1)}
+                  className="glass-card"
+                  style={{ padding: '8px', opacity: pageNumber >= numPages ? 0.5 : 1 }}
+                >
+                  <ChevronRight size={24} />
+                </button>
+              </footer>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -633,10 +702,17 @@ const App = () => {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        .react-pdf__Page__canvas {
-          max-width: 100%;
+        .pdf-page-shadow canvas {
+          box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+          border-radius: 8px;
+          max-width: 100% !important;
           height: auto !important;
-          border-radius: 12px;
+        }
+        .react-pdf__Document {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          width: 100%;
         }
       `}} />
     </div>

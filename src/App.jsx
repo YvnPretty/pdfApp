@@ -20,13 +20,25 @@ import {
   Eye,
   Share2,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PDFDocument } from 'pdf-lib';
 import { jsPDF } from 'jspdf';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
+
+// PDF Viewer Imports
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
+
+// Set worker for react-pdf
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const App = () => {
   const [showSplash, setShowSplash] = useState(true);
@@ -36,7 +48,13 @@ const App = () => {
   const [files, setFiles] = useState([]);
   const [resultUrl, setResultUrl] = useState(null);
   const [error, setError] = useState(null);
+  const [viewingPdf, setViewingPdf] = useState(null); // URL of PDF to view
   const fileInputRef = useRef(null);
+
+  // PDF Viewer State
+  const [numPages, setNumPages] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [scale, setScale] = useState(1.0);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2500);
@@ -52,6 +70,7 @@ const App = () => {
     { id: 'merge', name: 'Merge PDF', icon: <Merge />, color: '#6366f1' },
     { id: 'compress', name: 'Compress', icon: <Zap />, color: '#f59e0b' },
     { id: 'secure', name: 'Password', icon: <Lock />, color: '#10b981' },
+    { id: 'view', name: 'View PDF', icon: <Eye />, color: '#ec4899' },
   ];
 
   const handleToolClick = (tool) => {
@@ -65,6 +84,15 @@ const App = () => {
     if (selectedFiles.length === 0) return;
 
     setFiles(selectedFiles);
+
+    // If it's just viewing, don't "process" it, just open viewer
+    if (selectedTool?.id === 'view') {
+      const url = URL.createObjectURL(selectedFiles[0]);
+      setViewingPdf(url);
+      setPageNumber(1);
+      return;
+    }
+
     setIsProcessing(true);
     setProcessStep(1);
     setError(null);
@@ -85,12 +113,16 @@ const App = () => {
         blob = await convertExcelToPdf(selectedFiles[0]);
       } else if (toolId === 'quick') {
         const file = selectedFiles[0];
+        if (file.type === 'application/pdf') {
+          const url = URL.createObjectURL(file);
+          setViewingPdf(url);
+          setIsProcessing(false);
+          return;
+        }
         if (file.type.startsWith('image/')) {
           blob = await convertImagesToPdf(selectedFiles);
         } else if (file.type === 'text/plain') {
           blob = await convertTextToPdf(file);
-        } else if (file.type === 'application/pdf' && selectedFiles.length > 1) {
-          blob = await mergePdfs(selectedFiles);
         } else if (file.name.endsWith('.docx')) {
           blob = await convertWordToPdf(file);
         } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
@@ -128,7 +160,7 @@ const App = () => {
     doc.setFontSize(10);
     doc.setTextColor(150, 150, 150);
     doc.text("Professional Document Management", 105, 280, { align: 'center' });
-    return new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
+    return doc.output('blob');
   };
 
   const convertTextToPdf = async (file) => {
@@ -137,7 +169,7 @@ const App = () => {
     doc.setFontSize(12);
     const lines = doc.splitTextToSize(text, 180);
     doc.text(lines, 15, 20);
-    return new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
+    return doc.output('blob');
   };
 
   const convertWordToPdf = async (file) => {
@@ -159,7 +191,7 @@ const App = () => {
       cursorY += 7;
     });
 
-    return new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
+    return doc.output('blob');
   };
 
   const convertExcelToPdf = async (file) => {
@@ -183,7 +215,7 @@ const App = () => {
       cursorY += 8;
     });
 
-    return new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
+    return doc.output('blob');
   };
 
   const convertImagesToPdf = async (files) => {
@@ -198,7 +230,7 @@ const App = () => {
       const finalHeight = Math.min(pdfHeight, doc.internal.pageSize.getHeight());
       doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, finalHeight);
     }
-    return new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
+    return doc.output('blob');
   };
 
   const readFileAsDataURL = (file) => {
@@ -232,24 +264,8 @@ const App = () => {
     setError(null);
   };
 
-  const shareFile = async () => {
-    if (!resultUrl) return;
-    try {
-      const response = await fetch(resultUrl);
-      const blob = await response.blob();
-      const file = new File([blob], `PDF_Master_${Date.now()}.pdf`, { type: 'application/pdf' });
-
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: 'PDF Master Document',
-        });
-      } else {
-        window.open(resultUrl, '_blank');
-      }
-    } catch (err) {
-      window.open(resultUrl, '_blank');
-    }
+  const onDocumentLoadSuccess = ({ numPages }) => {
+    setNumPages(numPages);
   };
 
   return (
@@ -308,6 +324,7 @@ const App = () => {
         ref={fileInputRef}
         style={{ display: 'none' }}
         multiple={selectedTool?.id === 'merge' || selectedTool?.id === 'image'}
+        accept={selectedTool?.id === 'view' ? 'application/pdf' : '*'}
         onChange={handleFileChange}
       />
 
@@ -429,27 +446,98 @@ const App = () => {
         </div>
       </motion.div>
 
-      {/* Recent Files */}
-      <section style={{ marginTop: '32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-          <History size={20} color="var(--text-secondary)" />
-          <h2>Recent Files</h2>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {[1, 2].map((i) => (
-            <div key={i} className="glass-card" style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '10px', borderRadius: '12px' }}>
-                <FileText color="#ef4444" size={24} />
+      {/* PDF Viewer Overlay */}
+      <AnimatePresence>
+        {viewingPdf && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'var(--bg-color)',
+              zIndex: 3000,
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            <header style={{
+              padding: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid var(--card-border)'
+            }}>
+              <button
+                onClick={() => setViewingPdf(null)}
+                className="btn-secondary"
+                style={{ width: 'auto', padding: '8px 12px' }}
+              >
+                <ChevronLeft size={20} /> Back
+              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => setScale(s => Math.max(0.5, s - 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomOut size={18} /></button>
+                <button onClick={() => setScale(s => Math.min(2, s + 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomIn size={18} /></button>
               </div>
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: '500' }}>Project_Report_v{i}.pdf</h3>
-                <p style={{ fontSize: '0.8rem' }}>2.4 MB • 2 hours ago</p>
-              </div>
-              <Download size={18} color="var(--text-secondary)" />
+              <a href={viewingPdf} download="document.pdf" className="btn-primary" style={{ width: 'auto', padding: '8px 16px' }}>
+                <Download size={18} />
+              </a>
+            </header>
+
+            <div style={{
+              flex: 1,
+              overflow: 'auto',
+              display: 'flex',
+              justifyContent: 'center',
+              padding: '20px',
+              background: '#1a1a1a'
+            }}>
+              <Document
+                file={viewingPdf}
+                onLoadSuccess={onDocumentLoadSuccess}
+                loading={<Loader2 className="animate-spin" size={40} color="var(--accent-color)" />}
+              >
+                <Page
+                  pageNumber={pageNumber}
+                  scale={scale}
+                  renderAnnotationLayer={false}
+                  renderTextLayer={false}
+                  className="glass-card"
+                  style={{ padding: 0, overflow: 'hidden' }}
+                />
+              </Document>
             </div>
-          ))}
-        </div>
-      </section>
+
+            <footer style={{
+              padding: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '20px',
+              borderTop: '1px solid var(--card-border)'
+            }}>
+              <button
+                disabled={pageNumber <= 1}
+                onClick={() => setPageNumber(p => p - 1)}
+                className="glass-card"
+                style={{ padding: '8px', opacity: pageNumber <= 1 ? 0.5 : 1 }}
+              >
+                <ChevronLeft size={24} />
+              </button>
+              <span>Page {pageNumber} of {numPages}</span>
+              <button
+                disabled={pageNumber >= numPages}
+                onClick={() => setPageNumber(p => p + 1)}
+                className="glass-card"
+                style={{ padding: '8px', opacity: pageNumber >= numPages ? 0.5 : 1 }}
+              >
+                <ChevronRight size={24} />
+              </button>
+            </footer>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Processing Modal */}
       <AnimatePresence>
@@ -514,26 +602,17 @@ const App = () => {
                   <h2>Success!</h2>
                   <p style={{ marginBottom: '24px' }}>Your file is ready.</p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <button className="btn-primary" onClick={() => { setViewingPdf(resultUrl); setIsProcessing(false); }}>
+                      <Eye size={20} /> View & Download
+                    </button>
                     <a
                       href={resultUrl}
                       download={`PDF_Master_${Date.now()}.pdf`}
-                      className="btn-primary"
-                      style={{ textDecoration: 'none' }}
-                    >
-                      <Download size={20} /> Download PDF
-                    </a>
-                    <a
-                      href={resultUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
                       className="btn-secondary"
                       style={{ textDecoration: 'none' }}
                     >
-                      <ExternalLink size={20} /> Open in Browser
+                      <Download size={20} /> Direct Download
                     </a>
-                    <button className="btn-secondary" onClick={shareFile} style={{ border: 'none' }}>
-                      <Share2 size={20} /> Share / More Options
-                    </button>
                     <button className="btn-secondary" onClick={resetProcess} style={{ marginTop: '8px', border: 'none' }}>
                       Done
                     </button>
@@ -553,6 +632,11 @@ const App = () => {
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        .react-pdf__Page__canvas {
+          max-width: 100%;
+          height: auto !important;
+          border-radius: 12px;
         }
       `}} />
     </div>

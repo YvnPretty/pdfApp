@@ -1,4 +1,3 @@
-import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText,
   Image as ImageIcon,
@@ -26,7 +25,12 @@ import {
   ZoomIn,
   ZoomOut,
   LayoutGrid,
-  Maximize2
+  Maximize2,
+  Printer,
+  Search,
+  Minimize2,
+  Globe,
+  PenTool
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PDFDocument } from 'pdf-lib';
@@ -51,6 +55,8 @@ const App = () => {
   const [resultUrl, setResultUrl] = useState(null);
   const [error, setError] = useState(null);
   const [viewingPdf, setViewingPdf] = useState(null);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState('');
   const fileInputRef = useRef(null);
 
   // PDF Viewer State
@@ -59,7 +65,11 @@ const App = () => {
   const [scale, setScale] = useState(1.0);
   const [viewMode, setViewMode] = useState('single'); // 'single' or 'grid'
   const [containerWidth, setContainerWidth] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
   const viewerContainerRef = useRef(null);
+  const viewerOverlayRef = useRef(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2500);
@@ -94,6 +104,14 @@ const App = () => {
     setError(null);
     setSelectedTool(tool);
     fileInputRef.current.click();
+  };
+
+  const handleUrlSubmit = (e) => {
+    e.preventDefault();
+    if (!pdfUrl) return;
+    setViewingPdf(pdfUrl);
+    setPageNumber(1);
+    setShowUrlInput(false);
   };
 
   const handleFileChange = async (e) => {
@@ -284,6 +302,74 @@ const App = () => {
     setNumPages(numPages);
   };
 
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      viewerOverlayRef.current.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  const handlePrint = () => {
+    const printWindow = window.open(viewingPdf, '_blank');
+    printWindow.onload = () => {
+      printWindow.print();
+    };
+  };
+
+  const [isDrawing, setIsDrawing] = useState(false);
+
+  const [drawMode, setDrawMode] = useState(false);
+  const canvasRef = useRef(null);
+  const contextRef = useRef(null);
+
+  useEffect(() => {
+    if (drawMode && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * 2;
+      canvas.height = rect.height * 2;
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+
+      const context = canvas.getContext('2d');
+      context.scale(2, 2);
+      context.lineCap = 'round';
+      context.strokeStyle = '#6366f1';
+      context.lineWidth = 3;
+      contextRef.current = context;
+    }
+  }, [drawMode, scale, pageNumber]);
+
+  const startDrawing = ({ nativeEvent }) => {
+    const { offsetX, offsetY } = nativeEvent;
+    contextRef.current.beginPath();
+    contextRef.current.moveTo(offsetX, offsetY);
+    setIsDrawing(true);
+  };
+
+  const finishDrawing = () => {
+    contextRef.current.closePath();
+    setIsDrawing(false);
+  };
+
+  const draw = ({ nativeEvent }) => {
+    if (!isDrawing) return;
+    const { offsetX, offsetY } = nativeEvent;
+    contextRef.current.lineTo(offsetX, offsetY);
+    contextRef.current.stroke();
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    context.clearRect(0, 0, canvas.width, canvas.height);
+  };
+
   return (
     <div className="app-container">
       <AnimatePresence>
@@ -385,32 +471,90 @@ const App = () => {
       </AnimatePresence>
 
       {/* Main Action */}
-      <motion.div
-        className="glass-card"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        style={{ marginBottom: '32px', textAlign: 'center' }}
-      >
-        <div style={{
-          width: '64px',
-          height: '64px',
-          background: 'var(--primary-gradient)',
-          borderRadius: '20px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          margin: '0 auto 16px auto',
-          boxShadow: '0 8px 16px rgba(99, 102, 241, 0.3)'
-        }}>
-          <Plus color="white" size={32} />
-        </div>
-        <h2>Quick Convert</h2>
-        <p style={{ marginBottom: '20px' }}>Upload any file to start</p>
-        <button className="btn-primary" onClick={() => handleToolClick({ id: 'quick', name: 'Quick Convert' })}>
-          <Upload size={20} /> Select File
-        </button>
-      </motion.div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '32px' }}>
+        <motion.div
+          className="glass-card"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          style={{ textAlign: 'center', cursor: 'pointer' }}
+          onClick={() => handleToolClick({ id: 'quick', name: 'Quick Convert' })}
+        >
+          <div style={{
+            width: '48px',
+            height: '48px',
+            background: 'var(--primary-gradient)',
+            borderRadius: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 12px auto',
+            boxShadow: '0 8px 16px rgba(99, 102, 241, 0.3)'
+          }}>
+            <Upload color="white" size={24} />
+          </div>
+          <h3 style={{ fontSize: '1rem' }}>Local File</h3>
+          <p style={{ fontSize: '0.75rem' }}>Upload from device</p>
+        </motion.div>
+
+        <motion.div
+          className="glass-card"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          style={{ textAlign: 'center', cursor: 'pointer' }}
+          onClick={() => setShowUrlInput(!showUrlInput)}
+        >
+          <div style={{
+            width: '48px',
+            height: '48px',
+            background: 'var(--secondary-gradient)',
+            borderRadius: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 12px auto',
+            boxShadow: '0 8px 16px rgba(45, 212, 191, 0.3)'
+          }}>
+            <Globe color="white" size={24} />
+          </div>
+          <h3 style={{ fontSize: '1rem' }}>URL Link</h3>
+          <p style={{ fontSize: '0.75rem' }}>Load from web</p>
+        </motion.div>
+      </div>
+
+      {/* URL Input Modal */}
+      <AnimatePresence>
+        {showUrlInput && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            style={{ marginBottom: '24px' }}
+          >
+            <form onSubmit={handleUrlSubmit} className="glass-card" style={{ display: 'flex', gap: '10px' }}>
+              <input
+                type="url"
+                placeholder="https://example.com/document.pdf"
+                value={pdfUrl}
+                onChange={(e) => setPdfUrl(e.target.value)}
+                style={{
+                  flex: 1,
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid var(--card-border)',
+                  borderRadius: '12px',
+                  padding: '10px 16px',
+                  color: 'white',
+                  outline: 'none'
+                }}
+              />
+              <button type="submit" className="btn-primary" style={{ width: 'auto', padding: '10px 20px' }}>
+                Load
+              </button>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Tools Grid */}
       <section>
@@ -466,6 +610,7 @@ const App = () => {
       <AnimatePresence>
         {viewingPdf && (
           <motion.div
+            ref={viewerOverlayRef}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -485,39 +630,80 @@ const App = () => {
               justifyContent: 'space-between',
               borderBottom: '1px solid var(--card-border)',
               background: 'rgba(5, 5, 7, 0.8)',
-              backdropFilter: 'blur(10px)'
+              backdropFilter: 'blur(10px)',
+              gap: '12px'
             }}>
-              <button
-                onClick={() => setViewingPdf(null)}
-                className="btn-secondary"
-                style={{ width: 'auto', padding: '8px 12px' }}
-              >
-                <ChevronLeft size={20} />
-              </button>
-
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button
-                  onClick={() => setViewMode('single')}
-                  className="glass-card"
-                  style={{ padding: '8px', background: viewMode === 'single' ? 'var(--accent-color)' : 'transparent' }}
+                  onClick={() => setViewingPdf(null)}
+                  className="btn-secondary"
+                  style={{ width: 'auto', padding: '8px 12px' }}
                 >
-                  <Maximize2 size={18} />
+                  <ChevronLeft size={20} />
                 </button>
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className="glass-card"
-                  style={{ padding: '8px', background: viewMode === 'grid' ? 'var(--accent-color)' : 'transparent' }}
-                >
-                  <LayoutGrid size={18} />
-                </button>
-                <div style={{ width: '1px', height: '20px', background: 'var(--card-border)', margin: '0 4px' }} />
-                <button onClick={() => setScale(s => Math.max(0.5, s - 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomOut size={18} /></button>
-                <button onClick={() => setScale(s => Math.min(2, s + 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomIn size={18} /></button>
+                <div style={{ display: 'flex', gap: '4px' }} className="hide-mobile">
+                  <button onClick={handlePrint} className="glass-card" style={{ padding: '8px' }}><Printer size={18} /></button>
+                  <button onClick={() => setShowSearch(!showSearch)} className="glass-card" style={{ padding: '8px', background: showSearch ? 'var(--accent-color)' : 'transparent' }}><Search size={18} /></button>
+                  <button onClick={() => setDrawMode(!drawMode)} className="glass-card" style={{ padding: '8px', background: drawMode ? 'var(--accent-color)' : 'transparent' }}><PenTool size={18} /></button>
+                </div>
               </div>
 
-              <a href={viewingPdf} download="document.pdf" className="btn-primary" style={{ width: 'auto', padding: '8px 16px' }}>
-                <Download size={18} />
-              </a>
+              <AnimatePresence>
+                {showSearch && (
+                  <motion.div
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: 'auto', opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    style={{ flex: 1, maxWidth: '300px' }}
+                  >
+                    <input
+                      type="text"
+                      placeholder="Search text..."
+                      value={searchText}
+                      onChange={(e) => setSearchText(e.target.value)}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid var(--card-border)',
+                        borderRadius: '10px',
+                        padding: '6px 12px',
+                        color: 'white',
+                        fontSize: '0.9rem'
+                      }}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '4px' }} className="hide-mobile">
+                  <button
+                    onClick={() => setViewMode('single')}
+                    className="glass-card"
+                    style={{ padding: '8px', background: viewMode === 'single' ? 'var(--accent-color)' : 'transparent' }}
+                  >
+                    <Maximize2 size={18} />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className="glass-card"
+                    style={{ padding: '8px', background: viewMode === 'grid' ? 'var(--accent-color)' : 'transparent' }}
+                  >
+                    <LayoutGrid size={18} />
+                  </button>
+                </div>
+                <div style={{ width: '1px', height: '20px', background: 'var(--card-border)', margin: '0 4px' }} />
+                <button onClick={() => setScale(s => Math.max(0.5, s - 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomOut size={18} /></button>
+                <span style={{ fontSize: '0.8rem', minWidth: '40px', textAlign: 'center' }}>{Math.round(scale * 100)}%</span>
+                <button onClick={() => setScale(s => Math.min(3, s + 0.1))} className="glass-card" style={{ padding: '8px' }}><ZoomIn size={18} /></button>
+                <div style={{ width: '1px', height: '20px', background: 'var(--card-border)', margin: '0 4px' }} />
+                <button onClick={toggleFullscreen} className="glass-card" style={{ padding: '8px' }}>
+                  {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                </button>
+                <a href={viewingPdf} download="document.pdf" className="btn-primary" style={{ width: 'auto', padding: '8px 16px' }}>
+                  <Download size={18} />
+                </a>
+              </div>
             </header>
 
             <div
@@ -527,7 +713,9 @@ const App = () => {
                 overflow: 'auto',
                 padding: '20px',
                 background: '#0a0a0c',
-                scrollBehavior: 'smooth'
+                scrollBehavior: 'smooth',
+                display: 'flex',
+                justifyContent: 'center'
               }}
             >
               <Document
@@ -536,22 +724,43 @@ const App = () => {
                 loading={<Loader2 className="animate-spin" size={40} color="var(--accent-color)" style={{ margin: '100px auto' }} />}
               >
                 {viewMode === 'single' ? (
-                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <div style={{ position: 'relative' }}>
                     <Page
                       pageNumber={pageNumber}
                       scale={scale}
                       width={containerWidth > 0 ? containerWidth : undefined}
-                      renderAnnotationLayer={false}
-                      renderTextLayer={false}
+                      renderAnnotationLayer={true}
+                      renderTextLayer={true}
                       className="pdf-page-shadow"
                     />
+                    {drawMode && (
+                      <canvas
+                        ref={canvasRef}
+                        onMouseDown={startDrawing}
+                        onMouseUp={finishDrawing}
+                        onMouseMove={draw}
+                        onTouchStart={startDrawing}
+                        onTouchEnd={finishDrawing}
+                        onTouchMove={draw}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          zIndex: 10,
+                          cursor: 'crosshair',
+                          touchAction: 'none'
+                        }}
+                      />
+                    )}
                   </div>
                 ) : (
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                    gridTemplateColumns: `repeat(auto-fill, minmax(${150 * scale}px, 1fr))`,
                     gap: '20px',
-                    padding: '10px'
+                    padding: '10px',
+                    width: '100%',
+                    maxWidth: '1200px'
                   }}>
                     {Array.from(new Array(numPages), (el, index) => (
                       <div
@@ -561,7 +770,7 @@ const App = () => {
                       >
                         <Page
                           pageNumber={index + 1}
-                          scale={0.3}
+                          scale={0.3 * scale}
                           renderAnnotationLayer={false}
                           renderTextLayer={false}
                           className="pdf-page-shadow"
@@ -585,28 +794,62 @@ const App = () => {
                 background: 'rgba(5, 5, 7, 0.8)',
                 backdropFilter: 'blur(10px)'
               }}>
-                <button
-                  disabled={pageNumber <= 1}
-                  onClick={() => setPageNumber(p => p - 1)}
-                  className="glass-card"
-                  style={{ padding: '8px', opacity: pageNumber <= 1 ? 0.5 : 1 }}
-                >
-                  <ChevronLeft size={24} />
-                </button>
-                <span style={{ fontWeight: '500' }}>{pageNumber} / {numPages}</span>
-                <button
-                  disabled={pageNumber >= numPages}
-                  onClick={() => setPageNumber(p => p + 1)}
-                  className="glass-card"
-                  style={{ padding: '8px', opacity: pageNumber >= numPages ? 0.5 : 1 }}
-                >
-                  <ChevronRight size={24} />
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    disabled={pageNumber <= 1}
+                    onClick={() => setPageNumber(p => p - 1)}
+                    className="glass-card"
+                    style={{ padding: '8px', opacity: pageNumber <= 1 ? 0.5 : 1 }}
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="number"
+                      value={pageNumber}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        if (val >= 1 && val <= numPages) setPageNumber(val);
+                      }}
+                      style={{
+                        width: '50px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid var(--card-border)',
+                        borderRadius: '6px',
+                        color: 'white',
+                        textAlign: 'center',
+                        padding: '4px'
+                      }}
+                    />
+                    <span style={{ fontWeight: '500', color: 'var(--text-secondary)' }}>/ {numPages}</span>
+                  </div>
+                  <button
+                    disabled={pageNumber >= numPages}
+                    onClick={() => setPageNumber(p => p + 1)}
+                    className="glass-card"
+                    style={{ padding: '8px', opacity: pageNumber >= numPages ? 0.5 : 1 }}
+                  >
+                    <ChevronRight size={24} />
+                  </button>
+                </div>
+
+                {drawMode && (
+                  <div style={{ display: 'flex', gap: '8px', marginLeft: '20px' }}>
+                    <button onClick={clearCanvas} className="btn-secondary" style={{ width: 'auto', padding: '8px 16px' }}>
+                      Clear
+                    </button>
+                    <button onClick={() => setDrawMode(false)} className="btn-primary" style={{ width: 'auto', padding: '8px 16px' }}>
+                      Done
+                    </button>
+                  </div>
+                )}
               </footer>
             )}
           </motion.div>
         )}
       </AnimatePresence>
+
+
 
       {/* Processing Modal */}
       <AnimatePresence>

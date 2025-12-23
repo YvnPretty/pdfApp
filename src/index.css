@@ -197,4 +197,18 @@ p {
   .app-container {
     padding: 16px;
   }
+
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+.pdf-page-shadow canvas {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  transition: transform 0.3s ease;
+}
+
+.pdf-page-shadow:hover canvas {
+  transform: translateY(-5px);
 }
